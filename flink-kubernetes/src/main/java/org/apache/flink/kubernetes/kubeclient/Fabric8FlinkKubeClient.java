@@ -29,6 +29,7 @@ import org.apache.flink.kubernetes.kubeclient.resources.KubernetesLeaderElector;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesPod;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesPodsWatcher;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesService;
+import org.apache.flink.kubernetes.kubeclient.resources.KubernetesStatefulSet;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesWatch;
 import org.apache.flink.kubernetes.kubeclient.services.ServiceType;
 import org.apache.flink.kubernetes.utils.KubernetesUtils;
@@ -41,6 +42,7 @@ import org.apache.flink.util.concurrent.FutureUtils;
 import org.apache.flink.util.concurrent.ScheduledExecutorServiceAdapter;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
+import io.fabric8.kubernetes.api.model.DeletionPropagation;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.IntOrString;
 import io.fabric8.kubernetes.api.model.ListOptionsBuilder;
@@ -50,6 +52,7 @@ import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.api.model.apps.StatefulSet;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.NamespacedKubernetesClient;
 import org.slf4j.Logger;
@@ -144,27 +147,7 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
     public CompletableFuture<Void> createTaskManagerPod(KubernetesPod kubernetesPod) {
         return CompletableFuture.runAsync(
                 () -> {
-                    if (masterDeploymentRef.get() == null) {
-                        final Deployment masterDeployment =
-                                this.internalClient
-                                        .apps()
-                                        .deployments()
-                                        .withName(KubernetesUtils.getDeploymentName(clusterId))
-                                        .get();
-                        if (masterDeployment == null) {
-                            throw new RuntimeException(
-                                    "Failed to find Deployment named "
-                                            + clusterId
-                                            + " in namespace "
-                                            + this.namespace);
-                        }
-                        masterDeploymentRef.compareAndSet(null, masterDeployment);
-                    }
-
-                    // Note that we should use the uid of the master Deployment for the
-                    // OwnerReference.
-                    setOwnerReference(
-                            checkNotNull(masterDeploymentRef.get()),
+                    setTaskManagerResourceOwnerReference(
                             Collections.singletonList(kubernetesPod.getInternalResource()));
 
                     LOG.debug(
@@ -178,11 +161,103 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
                 kubeClientExecutorService);
     }
 
+    private void setTaskManagerResourceOwnerReference(List<HasMetadata> kubernetesPod) {
+        if (masterDeploymentRef.get() == null) {
+            final Deployment masterDeployment =
+                    this.internalClient
+                            .apps()
+                            .deployments()
+                            .withName(KubernetesUtils.getDeploymentName(clusterId))
+                            .get();
+            if (masterDeployment == null) {
+                throw new RuntimeException(
+                        "Failed to find Deployment named "
+                                + clusterId
+                                + " in namespace "
+                                + this.namespace);
+            }
+            masterDeploymentRef.compareAndSet(null, masterDeployment);
+        }
+
+        // Note that we should use the uid of the master Deployment for the
+        // OwnerReference.
+        setOwnerReference(checkNotNull(masterDeploymentRef.get()), kubernetesPod);
+    }
+
     @Override
     public CompletableFuture<Void> stopPod(String podName) {
         return CompletableFuture.runAsync(
                 () -> this.internalClient.pods().withName(podName).delete(),
                 kubeClientExecutorService);
+    }
+
+    @Override
+    public CompletableFuture<Void> createTaskManagerStatefulSet(
+            KubernetesStatefulSet kubernetesStatefulSet) {
+        return CompletableFuture.runAsync(
+                () -> {
+                    setTaskManagerResourceOwnerReference(
+                            Collections.singletonList(kubernetesStatefulSet.getInternalResource()));
+
+                    LOG.debug(
+                            "Triggering creation of stateful set with spec{}{}",
+                            System.lineSeparator(),
+                            KubernetesUtils.tryToGetPrettyPrintYaml(
+                                    kubernetesStatefulSet.getInternalResource()));
+
+                    this.internalClient
+                            .resource(kubernetesStatefulSet.getInternalResource())
+                            .create();
+                },
+                kubeClientExecutorService);
+    }
+
+    @Override
+    public CompletableFuture<Integer> scaleTaskManagerStatefulSet(String name, int delta) {
+        final CompletableFuture<Integer> currentNumReplicas =
+                CompletableFuture.supplyAsync(
+                        () ->
+                                this.internalClient
+                                        .apps()
+                                        .statefulSets()
+                                        .withName(name)
+                                        .get()
+                                        .getSpec()
+                                        .getReplicas(),
+                        kubeClientExecutorService);
+
+        return currentNumReplicas.thenApplyAsync(
+                (numReplicas) ->
+                        this.internalClient
+                                .apps()
+                                .statefulSets()
+                                .withName(name)
+                                .scale(numReplicas + delta)
+                                .getSpec()
+                                .getReplicas(),
+                kubeClientExecutorService);
+    }
+
+    @Override
+    public List<KubernetesStatefulSet> getStatefulSetsWithLabels(Map<String, String> labels) {
+        final List<StatefulSet> statefulSetList =
+                this.internalClient
+                        .apps()
+                        .statefulSets()
+                        .withLabels(labels)
+                        .list(
+                                new ListOptionsBuilder()
+                                        .withResourceVersion(KUBERNETES_ZERO_RESOURCE_VERSION)
+                                        .build())
+                        .getItems();
+
+        if (statefulSetList == null || statefulSetList.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        return statefulSetList.stream()
+                .map(KubernetesStatefulSet::new)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -227,7 +302,7 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
                 .apps()
                 .deployments()
                 .withName(KubernetesUtils.getDeploymentName(clusterId))
-                .cascading(true)
+                .withPropagationPolicy(DeletionPropagation.FOREGROUND)
                 .delete();
     }
 

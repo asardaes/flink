@@ -24,6 +24,7 @@ import org.apache.flink.kubernetes.kubeclient.resources.KubernetesConfigMap;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesLeaderElector;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesPod;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesService;
+import org.apache.flink.kubernetes.kubeclient.resources.KubernetesStatefulSet;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesWatch;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.concurrent.FutureUtils;
@@ -131,6 +132,22 @@ public class TestingFlinkKubeClient implements FlinkKubeClient {
     @Override
     public CompletableFuture<Void> stopPod(String podName) {
         return stopPodFunction.apply(podName);
+    }
+
+    @Override
+    public CompletableFuture<Void> createTaskManagerStatefulSet(
+            KubernetesStatefulSet kubernetesStatefulSet) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+    }
+
+    @Override
+    public CompletableFuture<Integer> scaleTaskManagerStatefulSet(String name, int delta) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+    }
+
+    @Override
+    public List<KubernetesStatefulSet> getStatefulSetsWithLabels(Map<String, String> labels) {
+        return List.of();
     }
 
     @Override

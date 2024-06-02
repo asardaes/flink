@@ -20,6 +20,7 @@ package org.apache.flink.kubernetes.entrypoint;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.kubernetes.KubernetesResourceManagerDriver;
+import org.apache.flink.kubernetes.KubernetesStatefulSetResourceManagerDriver;
 import org.apache.flink.kubernetes.KubernetesWorkerNode;
 import org.apache.flink.kubernetes.configuration.KubernetesConfigOptions;
 import org.apache.flink.kubernetes.configuration.KubernetesResourceManagerDriverConfiguration;
@@ -57,11 +58,22 @@ public class KubernetesResourceManagerFactory
                                 configuration.get(KubernetesConfigOptions.CLUSTER_ID),
                                 webInterfaceUrl);
 
-        return new KubernetesResourceManagerDriver(
-                configuration,
-                FlinkKubeClientFactory.getInstance()
-                        .fromConfiguration(configuration, "resourcemanager"),
-                kubernetesResourceManagerDriverConfiguration);
+        final KubernetesConfigOptions.TaskManagerKind taskManagerKind =
+                configuration.get(KubernetesConfigOptions.TASK_MANAGER_KIND);
+
+        if (taskManagerKind == KubernetesConfigOptions.TaskManagerKind.Pod) {
+            return new KubernetesResourceManagerDriver(
+                    configuration,
+                    FlinkKubeClientFactory.getInstance()
+                            .fromConfiguration(configuration, "resourcemanager"),
+                    kubernetesResourceManagerDriverConfiguration);
+        } else {
+            return new KubernetesStatefulSetResourceManagerDriver(
+                    configuration,
+                    FlinkKubeClientFactory.getInstance()
+                            .fromConfiguration(configuration, "resourcemanager"),
+                    kubernetesResourceManagerDriverConfiguration);
+        }
     }
 
     @Override

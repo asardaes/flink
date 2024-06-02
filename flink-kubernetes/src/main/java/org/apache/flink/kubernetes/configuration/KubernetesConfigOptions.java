@@ -166,6 +166,12 @@ public class KubernetesConfigOptions {
                             "The limit factor of memory used by job manager. "
                                     + "The resources limit memory will be set to memory * limit-factor.");
 
+    public static final ConfigOption<TaskManagerKind> TASK_MANAGER_KIND =
+            key("kubernetes.taskmanager.kind")
+                    .enumType(TaskManagerKind.class)
+                    .defaultValue(TaskManagerKind.Pod)
+                    .withDescription("The kind of Kubernetes resource for the Task Manager.");
+
     public static final ConfigOption<Double> TASK_MANAGER_CPU =
             key("kubernetes.taskmanager.cpu.amount")
                     .doubleType()
@@ -620,6 +626,12 @@ public class KubernetesConfigOptions {
         IfNotPresent,
         Always,
         Never
+    }
+
+    /** The kind of Kubernetes resource for the Task Manager. */
+    public enum TaskManagerKind {
+        Pod,
+        StatefulSet
     }
 
     static {

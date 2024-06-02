@@ -23,6 +23,7 @@ import org.apache.flink.kubernetes.kubeclient.resources.KubernetesConfigMap;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesLeaderElector;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesPod;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesService;
+import org.apache.flink.kubernetes.kubeclient.resources.KubernetesStatefulSet;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesWatch;
 import org.apache.flink.runtime.persistence.PossibleInconsistentStateException;
 
@@ -64,6 +65,33 @@ public interface FlinkKubeClient extends AutoCloseable {
      * @return Return the pod stop future
      */
     CompletableFuture<Void> stopPod(String podName);
+
+    /**
+     * Create a task manager stateful set.
+     *
+     * @param kubernetesStatefulSet the resource defining the stateful set.
+     * @return A future that can be used to track the stateful set creation.
+     */
+    CompletableFuture<Void> createTaskManagerStatefulSet(
+            KubernetesStatefulSet kubernetesStatefulSet);
+
+    /**
+     * Create a task manager stateful set.
+     *
+     * @param name the name of the stateful set.
+     * @param delta the amount to add or subtract from the set's desired number of replicas.
+     * @return A future that can be used to track the stateful set scale operation and which returns
+     *     the number of replicas afterward.
+     */
+    CompletableFuture<Integer> scaleTaskManagerStatefulSet(String name, int delta);
+
+    /**
+     * List the pods with specified labels.
+     *
+     * @param labels labels to filter the pods
+     * @return pod list
+     */
+    List<KubernetesStatefulSet> getStatefulSetsWithLabels(Map<String, String> labels);
 
     /**
      * Stop cluster and clean up all resources, include services, auxiliary services and all running
